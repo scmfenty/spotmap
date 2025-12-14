@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Los Santos County</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+  <style>
+    body { margin: 0; padding: 0; }
+    #map { height: 100vh; width: 100vw; background: #000; }
+
+    #logo {
+      position: fixed;   /* reste fixé à l’écran */
+      bottom: 20px;      /* 10px depuis le bas */
+      right: 20px;       /* 10px depuis la droite */
+      width: 100px;       /* largeur du logo */
+      height: auto;      /* hauteur proportionnelle */
+      z-index: 10000;    /* au-dessus de tout */
+      pointer-events: none; /* ne bloque pas les clics */
+      filter: drop-shadow(2px 2px 4px rgba(255, 255, 255, 0.3));
+    }
+
+
+    #coords {
+      position: fixed;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.8);
+      color: #fff;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      z-index: 9999;
+      pointer-events: none;
+    }
+
+    /* --- POI --- */
+    .poi-wrapper { display: flex; align-items: center; }
+    .poi-text {
+      margin-left: 6px;
+      cursor: pointer;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      color: #000;
+      white-space: nowrap;
+      text-shadow:
+        -1px -1px 0 #fff,
+         1px -1px 0 #fff,
+        -1px  1px 0 #fff,
+         1px  1px 0 #fff;
+      z-index: 10000;
+    }
+    .poi-text.visible { opacity: 1; pointer-events: auto; }
+    .poi-icon { width: 24px; height: 24px; }
+
+    /* --- Séparateur HR clair --- */
+    .popup-hr { margin: 6px 0; height: 1px; background: rgba(0,0,0,0.1); }
+
+    /* --- Ligne contact (téléphone / site) --- */
+    .popup-contact {
+      display: flex;
+      align-items: center;
+      margin-bottom: 4px;
+      font-size: 13px;
+      color: #333;
+    }
+    .popup-contact .popup-icon {
+      width: 16px;
+      height: 16px;
+      margin-right: 6px;
+      object-fit: contain;
+    }
+    .popup-contact a { color: #0066cc; text-decoration: none; }
+    .popup-contact a:hover { text-decoration: underline; }
+
+    /* --- Popup custom --- */
+    .poi-popup { display: flex; font-family: Arial, sans-serif; width: 300px; background: #fff; border-radius: 6px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.25); }
+    .poi-popup-left { flex: 2; padding: 10px; box-sizing: border-box; }
+    .poi-popup-left .title { font-weight: bold; font-size: 16px; margin-bottom: 4px; }
+    .poi-popup-left .info { font-size: 14px; color: #333; text-align: justify; word-break: break-word; }
+    .poi-popup-right { flex: 1; position: relative; border-left: 2px solid #fff; }
+    .poi-popup-right img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+
+    /* supprime le fond et l'ombre par défaut de Leaflet */
+    .no-default-popup .leaflet-popup-content-wrapper,
+    .no-default-popup .leaflet-popup-tip { background: none; box-shadow: none; padding: 0; }
+
+    /* flèche au-dessus */
+    .leaflet-popup-tip { background: #fff; width: 12px; height: 12px; transform: rotate(45deg); margin: 0 auto; top: -6px; border: none; }
+
+    /* Croix de fermeture */
+    .no-default-popup .leaflet-popup-close-button {
+      position: absolute !important; top: 11px !important; left: 268px !important;
+      color: #000; font-size: 13px !important; width: auto !important; height: auto !important;
+      line-height: normal !important; text-align: center !important; font-weight: bold;
+      text-shadow: none; padding: 2px 4px !important; z-index: 1000;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="poi-labels-container" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:10000;"></div>
+  <div id="coords">Clique sur la carte</div>
+  <div id="map"></div>
+  <img src="icons/logo.png" id="logo" alt="Logo" />
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const largeur = 4000;
+    const hauteur = 5558;
+    const limites = [[0,0],[hauteur,largeur]];
+
+    const map = L.map('map', {
+      crs: L.CRS.Simple,
+      maxBounds: limites,
+      maxBoundsViscosity: 1.0,
+      attributionControl: false
+    });
+
+    L.imageOverlay('map.png', limites).addTo(map);
+    map.fitBounds(limites);
+
+    const zoomInitial = map.getZoom();
+    const ZOOM_TEXTE_VISIBLE = zoomInitial + 1;
+
+    map.setMinZoom(zoomInitial - 1);
+    map.setMaxZoom(zoomInitial + 3);
+    map.panInsideBounds(limites);
+    setTimeout(() => { map.invalidateSize(); }, 100);
+
+    const coordsDiv = document.getElementById('coords');
+
+    map.on('click', e => {
+      const x = Math.round(e.latlng.lng);
+      const y = Math.round(e.latlng.lat);
+      const coordsText = `${x}, ${y},`;
+      coordsDiv.textContent = `X : ${x} | Y : ${y} (copié !)`;
+      navigator.clipboard.writeText(coordsText).catch(err => console.error(err));
+      setTimeout(() => { coordsDiv.textContent = `X : ${x} | Y : ${y}`; }, 1500);
+    });
+
+    map.on('mousemove', e => {
+      const x = Math.round(e.latlng.lng);
+      const y = Math.round(e.latlng.lat);
+      coordsDiv.textContent = `X : ${x} | Y : ${y}`;
+    });
+
+    function updatePOILabels() {
+      const show = map.getZoom() >= ZOOM_TEXTE_VISIBLE;
+      document.querySelectorAll('.poi-text').forEach(el => el.classList.toggle('visible', show));
+    }
+    map.on('zoomend', updatePOILabels);
+    updatePOILabels();
+
+    let selectedMarker = null;
+
+    function ajouterPOI(x, y, texte, image, couleur='#000', popupData=null) {
+      const icon = L.divIcon({
+        className: 'poi-wrapper',
+        html: `<img src="${image}" class="poi-icon"/><span class="poi-text" style="color:${couleur}">${texte}</span>`,
+        iconSize: [24,24],
+        iconAnchor: [12,12]
+      });
+
+      const marker = L.marker([y,x], { icon }).addTo(map);
+      const markerEl = marker.getElement();
+      const label = markerEl.querySelector('.poi-text');
+
+      if (popupData) {
+        const phone = popupData.phone || '';
+        const website = popupData.website || '';
+        const phoneIcon = popupData.phoneIcon || 'icons/phone.png';
+        const webIcon = popupData.webIcon || 'icons/web.png';
+
+        const popupContent = `
+          <div class="poi-popup">
+            <div class="poi-popup-left">
+              <div class="title">${popupData.title || ''}</div>
+              <div class="info">${popupData.info || ''}</div>
+              <div class="popup-hr"></div>
+              ${phone ? `<div class="popup-contact"><img src="${phoneIcon}" class="popup-icon"/><span>${phone}</span></div>` : ''}
+              ${website ? `<div class="popup-contact"><img src="${webIcon}" class="popup-icon"/><a href="${website}" target="_blank">${website}</a></div>` : ''}
+            </div>
+            <div class="poi-popup-right"><img src="${popupData.image || ''}"/></div>
+          </div>
+        `;
+        marker.bindPopup(popupContent, { closeButton:true, offset:[0,5], autoClose:true, className:'no-default-popup' });
+        marker.on('popupclose', ()=>{ if(selectedMarker===marker) selectedMarker=null; updateLabelVisibility(); });
+      }
+
+      function updateLabelVisibility() {
+        if(!label || !markerEl) return;
+        const isSelected = selectedMarker===marker;
+        const show = isSelected || map.getZoom() >= zoomInitial+1;
+        label.classList.toggle('visible', show);
+        markerEl.style.zIndex = isSelected ? 10000 : '';
+      }
+      map.on('zoomend', updateLabelVisibility);
+      updateLabelVisibility();
+
+      marker.on('click', ()=>{ selectedMarker=marker; updateLabelVisibility(); if(popupData) marker.openPopup(); });
+      if(label) label.addEventListener('click', e=>{ e.stopPropagation(); selectedMarker=marker; updateLabelVisibility(); if(popupData) marker.openPopup(); });
+    }
+
+    // --- Exemples de POI ---
+    ajouterPOI(2475,2384,'La Fuente Blanca','icons/grey.png','#b3b3b3',{
+      title:'La Fuente Blanca', info:'Centre équestre à Great Chaparral.',
+      image:'images/fuenteblanca.png', phone:'012-345-6789', website:'www.lafuenteblanca.com',
+      phoneIcon:'icons/phone.png', webIcon:'icons/web.png'
+    });
+
+    ajouterPOI(1967,1152,'LSSD Davis Station','icons/official.png','#383d51',{
+      title:'LSSD Davis Station', info:'Bureau du shérif à Davis.',
+      image:'images/davissheriff.png', phone:'012-345-6789', website:'www.lafuenteblanca.com',
+      phoneIcon:'icons/phone.png', webIcon:'icons/web.png'
+    });
+
+    ajouterPOI(1864,1142,'LSCOFD Fire Station 9','icons/fire.png','#e08090',{
+      title:'LSCOFD Fire Station 9', info:'Caserne de pompier à Davis.',
+      image:'images/davisfire.png', phone:'012-345-6789', website:'www.lafuenteblanca.com',
+      phoneIcon:'icons/phone.png', webIcon:'icons/web.png'
+    });
+
+    ajouterPOI(2129,2421,'Vinewood Sign','icons/vinewood.png','#9425de',{
+      title:'Vinewood Sign', info:'Attraction touristique à Vinewood Hills.',
+      image:'images/vinewoodsign.png', phone:'012-345-6789', website:'www.lafuenteblanca.com',
+      phoneIcon:'icons/phone.png', webIcon:'icons/web.png'
+    });
+
+  </script>
+</body>
+</html>
